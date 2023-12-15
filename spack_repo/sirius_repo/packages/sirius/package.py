@@ -68,7 +68,7 @@ class Sirius(CMakePackage, CudaPackage, ROCmPackage):
     variant(
         "profiler", default=True, description="Use internal profiler to measure execution time"
     )
-    variant("nvtx", default=False, description="Use NVTX profiler")
+    variant("nvtx", default=False, description="Use NVTX/ROCTX profiler")
     variant("dftd3", default=False, description="Enable dft-d3 corrections", when="@7.8.1:")
     variant("dftd4", default=False, description="Enable dft-d4 corrections", when="@7.8.1:")
 
@@ -145,6 +145,7 @@ class Sirius(CMakePackage, CudaPackage, ROCmPackage):
     depends_on("nlcglib+cuda", when="+nlcglib+cuda")
 
     depends_on("libvdwxc@0.3.0:+mpi", when="+vdwxc")
+    depends_on("roctracer-dev", when="+nvtx+rocm")
 
     depends_on("scalapack", when="+scalapack")
 
@@ -168,6 +169,7 @@ class Sirius(CMakePackage, CudaPackage, ROCmPackage):
     conflicts("^libxc@5.0.0")  # known to produce incorrect results
     conflicts("+single_precision", when="@:7.2.4")
     conflicts("+scalapack", when="^cray-libsci")
+    conflicts("+nvtx", when="~cuda~rocm")
 
     # Propagate openmp to blas
     depends_on("openblas threads=openmp", when="+openmp ^[virtuals=blas,lapack] openblas")
