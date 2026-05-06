@@ -392,10 +392,12 @@ K_point<T>::update()
     gkvec_partition_->update_gkvec_cart();
 
     if (ctx_.full_potential()) {
-        if (ctx_.cfg().iterative_solver().type() == "exact") {
+        /*if (ctx_.cfg().iterative_solver().type() == "exact") {
             alm_coeffs_row_ = std::make_unique<Matching_coefficients>(unit_cell_, *gkvec_row_);
             alm_coeffs_col_ = std::make_unique<Matching_coefficients>(unit_cell_, *gkvec_col_);
-        }
+        }*/
+	alm_coeffs_row_ = std::make_unique<Matching_coefficients>(unit_cell_, *gkvec_row_);
+	alm_coeffs_col_ = std::make_unique<Matching_coefficients>(unit_cell_, *gkvec_col_);
         alm_coeffs_loc_ = std::make_unique<Matching_coefficients>(unit_cell_, gkvec());
     }
 

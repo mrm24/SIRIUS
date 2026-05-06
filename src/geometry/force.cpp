@@ -797,6 +797,7 @@ Force::add_ibs_force(K_point<double>* kp__, Hamiltonian_k<double>& Hk__, mdarray
         // Here we do the transformation
         remap_lapw_evec_to_2d_block_cyclic(kp__->gkvec().num_gvec(), ctx_.unit_cell().mt_lo_basis_size(), ctx_.num_fv_states(),
                             kp__->fv_eigen_vectors_slab(), fv_evec, kp__->comm());
+	
     }
 
     la::dmatrix<std::complex<double>> h(ngklo, ngklo, bg, bs, bs);
