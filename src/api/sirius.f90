@@ -465,6 +465,10 @@ end subroutine sirius_import_parameters
 !> @param [in] core_rel Core relativity treatment.
 !> @param [in] iter_solver_tol_empty Tolerance for the empty states.
 !> @param [in] iter_solver_type Type of iterative solver.
+!> @param [in] iter_solver_init_eval_old Initialize eigenvalues from old ones.
+!> @param [in] iter_solver_orthogonalize Orthogonalize the new subspace basis functions
+!> @param [in] iter_solver_subspace_size Size of the subspace
+!> @param [in] iter_solver_internal_nsteps Number of internal iterations
 !> @param [in] verbosity Verbosity level.
 !> @param [in] hubbard_correction True if LDA+U correction is enabled.
 !> @param [in] hubbard_correction_kind Type of LDA+U implementation (simplified or full).
@@ -481,10 +485,11 @@ end subroutine sirius_import_parameters
 !> @param [out] error_code Error code.
 subroutine sirius_set_parameters(handler,lmax_apw,lmax_rho,lmax_pot,num_fv_states,&
 &num_bands,num_mag_dims,pw_cutoff,gk_cutoff,fft_grid_size,auto_rmt,gamma_point,use_symmetry,&
-&so_correction,valence_rel,core_rel,iter_solver_tol_empty,iter_solver_type,verbosity,&
-&hubbard_correction,hubbard_correction_kind,hubbard_full_orthogonalization,hubbard_constrained_calculation,&
-&hubbard_orbitals,dftd3_correction,sht_coverage,min_occupancy,smearing,smearing_width,&
-&spglib_tol,electronic_structure_method,error_code)
+&so_correction,valence_rel,core_rel,iter_solver_tol_empty,iter_solver_type,iter_solver_init_eval_old,&
+&iter_solver_orthogonalize,iter_solver_subspace_size,iter_solver_internal_nsteps,&
+&verbosity,hubbard_correction,hubbard_correction_kind,hubbard_full_orthogonalization,&
+&hubbard_constrained_calculation,hubbard_orbitals,dftd3_correction,sht_coverage,min_occupancy,&
+&smearing,smearing_width,spglib_tol,electronic_structure_method,error_code)
 implicit none
 !
 type(sirius_context_handler), target, intent(in) :: handler
@@ -505,6 +510,10 @@ character(*), optional, target, intent(in) :: valence_rel
 character(*), optional, target, intent(in) :: core_rel
 real(8), optional, target, intent(in) :: iter_solver_tol_empty
 character(*), optional, target, intent(in) :: iter_solver_type
+logical, optional, target, intent(in) :: iter_solver_init_eval_old
+logical, optional, target, intent(in) :: iter_solver_orthogonalize
+integer, optional, target, intent(in) :: iter_solver_subspace_size
+integer, optional, target, intent(in) :: iter_solver_internal_nsteps
 integer, optional, target, intent(in) :: verbosity
 logical, optional, target, intent(in) :: hubbard_correction
 integer, optional, target, intent(in) :: hubbard_correction_kind
@@ -544,6 +553,12 @@ character(C_CHAR), target, allocatable :: core_rel_c_type(:)
 type(C_PTR) :: iter_solver_tol_empty_ptr
 type(C_PTR) :: iter_solver_type_ptr
 character(C_CHAR), target, allocatable :: iter_solver_type_c_type(:)
+type(C_PTR) :: iter_solver_init_eval_old_ptr
+logical(C_BOOL), target :: iter_solver_init_eval_old_c_type
+type(C_PTR) :: iter_solver_orthogonalize_ptr
+logical(C_BOOL), target :: iter_solver_orthogonalize_c_type
+type(C_PTR) :: iter_solver_subspace_size_ptr
+type(C_PTR) :: iter_solver_internal_nsteps_ptr
 type(C_PTR) :: verbosity_ptr
 type(C_PTR) :: hubbard_correction_ptr
 logical(C_BOOL), target :: hubbard_correction_c_type
@@ -569,10 +584,11 @@ type(C_PTR) :: error_code_ptr
 interface
 subroutine sirius_set_parameters_aux(handler,lmax_apw,lmax_rho,lmax_pot,num_fv_states,&
 &num_bands,num_mag_dims,pw_cutoff,gk_cutoff,fft_grid_size,auto_rmt,gamma_point,use_symmetry,&
-&so_correction,valence_rel,core_rel,iter_solver_tol_empty,iter_solver_type,verbosity,&
-&hubbard_correction,hubbard_correction_kind,hubbard_full_orthogonalization,hubbard_constrained_calculation,&
-&hubbard_orbitals,dftd3_correction,sht_coverage,min_occupancy,smearing,smearing_width,&
-&spglib_tol,electronic_structure_method,error_code)&
+&so_correction,valence_rel,core_rel,iter_solver_tol_empty,iter_solver_type,iter_solver_init_eval_old,&
+&iter_solver_orthogonalize,iter_solver_subspace_size,iter_solver_internal_nsteps,&
+&verbosity,hubbard_correction,hubbard_correction_kind,hubbard_full_orthogonalization,&
+&hubbard_constrained_calculation,hubbard_orbitals,dftd3_correction,sht_coverage,min_occupancy,&
+&smearing,smearing_width,spglib_tol,electronic_structure_method,error_code)&
 &bind(C, name="sirius_set_parameters")
 use, intrinsic :: ISO_C_BINDING
 type(C_PTR), value :: handler
@@ -593,6 +609,10 @@ type(C_PTR), value :: valence_rel
 type(C_PTR), value :: core_rel
 type(C_PTR), value :: iter_solver_tol_empty
 type(C_PTR), value :: iter_solver_type
+type(C_PTR), value :: iter_solver_init_eval_old
+type(C_PTR), value :: iter_solver_orthogonalize
+type(C_PTR), value :: iter_solver_subspace_size
+type(C_PTR), value :: iter_solver_internal_nsteps
 type(C_PTR), value :: verbosity
 type(C_PTR), value :: hubbard_correction
 type(C_PTR), value :: hubbard_correction_kind
@@ -689,6 +709,24 @@ allocate(iter_solver_type_c_type(len(iter_solver_type)+1))
 iter_solver_type_c_type = string_f2c(iter_solver_type)
 iter_solver_type_ptr = C_LOC(iter_solver_type_c_type)
 endif
+iter_solver_init_eval_old_ptr = C_NULL_PTR
+if (present(iter_solver_init_eval_old)) then
+iter_solver_init_eval_old_c_type = iter_solver_init_eval_old
+iter_solver_init_eval_old_ptr = C_LOC(iter_solver_init_eval_old_c_type)
+endif
+iter_solver_orthogonalize_ptr = C_NULL_PTR
+if (present(iter_solver_orthogonalize)) then
+iter_solver_orthogonalize_c_type = iter_solver_orthogonalize
+iter_solver_orthogonalize_ptr = C_LOC(iter_solver_orthogonalize_c_type)
+endif
+iter_solver_subspace_size_ptr = C_NULL_PTR
+if (present(iter_solver_subspace_size)) then
+iter_solver_subspace_size_ptr = C_LOC(iter_solver_subspace_size)
+endif
+iter_solver_internal_nsteps_ptr = C_NULL_PTR
+if (present(iter_solver_internal_nsteps)) then
+iter_solver_internal_nsteps_ptr = C_LOC(iter_solver_internal_nsteps)
+endif
 verbosity_ptr = C_NULL_PTR
 if (present(verbosity)) then
 verbosity_ptr = C_LOC(verbosity)
@@ -758,10 +796,12 @@ endif
 call sirius_set_parameters_aux(handler_ptr,lmax_apw_ptr,lmax_rho_ptr,lmax_pot_ptr,&
 &num_fv_states_ptr,num_bands_ptr,num_mag_dims_ptr,pw_cutoff_ptr,gk_cutoff_ptr,fft_grid_size_ptr,&
 &auto_rmt_ptr,gamma_point_ptr,use_symmetry_ptr,so_correction_ptr,valence_rel_ptr,&
-&core_rel_ptr,iter_solver_tol_empty_ptr,iter_solver_type_ptr,verbosity_ptr,hubbard_correction_ptr,&
-&hubbard_correction_kind_ptr,hubbard_full_orthogonalization_ptr,hubbard_constrained_calculation_ptr,&
-&hubbard_orbitals_ptr,dftd3_correction_ptr,sht_coverage_ptr,min_occupancy_ptr,smearing_ptr,&
-&smearing_width_ptr,spglib_tol_ptr,electronic_structure_method_ptr,error_code_ptr)
+&core_rel_ptr,iter_solver_tol_empty_ptr,iter_solver_type_ptr,iter_solver_init_eval_old_ptr,&
+&iter_solver_orthogonalize_ptr,iter_solver_subspace_size_ptr,iter_solver_internal_nsteps_ptr,&
+&verbosity_ptr,hubbard_correction_ptr,hubbard_correction_kind_ptr,hubbard_full_orthogonalization_ptr,&
+&hubbard_constrained_calculation_ptr,hubbard_orbitals_ptr,dftd3_correction_ptr,sht_coverage_ptr,&
+&min_occupancy_ptr,smearing_ptr,smearing_width_ptr,spglib_tol_ptr,electronic_structure_method_ptr,&
+&error_code_ptr)
 if (present(gamma_point)) then
 endif
 if (present(use_symmetry)) then
@@ -776,6 +816,10 @@ deallocate(core_rel_c_type)
 endif
 if (present(iter_solver_type)) then
 deallocate(iter_solver_type_c_type)
+endif
+if (present(iter_solver_init_eval_old)) then
+endif
+if (present(iter_solver_orthogonalize)) then
 endif
 if (present(hubbard_correction)) then
 endif
@@ -3073,6 +3117,14 @@ error_code_ptr = C_LOC(error_code)
 endif
 call sirius_generate_density_aux(gs_handler_ptr,add_core_ptr,transform_to_rg_ptr,&
 &paw_only_ptr,efermi_ptr,error_code_ptr)
+if (present(add_core)) then
+endif
+if (present(transform_to_rg)) then
+endif
+if (present(paw_only)) then
+endif
+if (present(efermi)) then
+endif
 end subroutine sirius_generate_density
 
 !

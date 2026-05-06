@@ -44,6 +44,28 @@ remap_lapw_evec_to_slab(int num_gkvec__, int num_mt_lo__, int num_bands__, la::d
     }
 }
 
+/// The opposite transformation to remap_lapw_evec_to_slab
+inline void
+remap_lapw_evec_to_2d_block_cyclic(int num_gkvec__, int num_mt_lo__, int num_bands__, wf::Wave_functions<double>& evec_slab__,
+                        la::dmatrix<std::complex<double>>& evec__, mpi::Communicator const& comm__)
+{
+    /* remap to scalapack */
+    if (true) {
+        /* G+k vector part */
+        auto layout_out = evec__.grid_layout(0, 0, num_gkvec__, num_bands__);
+        auto layout_in  = evec_slab__.grid_layout_pw(wf::spin_index(0), wf::band_range(0, num_bands__));
+        costa::transform(layout_in, layout_out, 'N', la::constant<std::complex<double>>::one(),
+                         la::constant<std::complex<double>>::zero(), comm__.native());
+    }
+    if (num_mt_lo__) {
+        /* muffin-tin part */
+        auto layout_out = evec__.grid_layout(num_gkvec__, 0, num_mt_lo__, num_bands__);
+        auto layout_in  = evec_slab__.grid_layout_mt(wf::spin_index(0), wf::band_range(0, num_bands__));
+        costa::transform(layout_in, layout_out, 'N', la::constant<std::complex<double>>::one(),
+                         la::constant<std::complex<double>>::zero(), comm__.native());
+    }
+}
+
 /// IORA changes overlap matrix. Wave functions need to be renormalized to preserve the number of electrons.
 inline void
 normalize_for_iora(Hamiltonian_k<double> const& Hk__, K_point<double>& kp__)

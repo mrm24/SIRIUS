@@ -184,6 +184,7 @@ else()
   if(SIRIUS_USE_SCALAPACK)
     find_package(SCALAPACK REQUIRED) # just sets scalapack_DIR
     set(SIRIUS_LINALG_LIB "${SIRIUS_LINALG_LIB};${SIRIUS_SCALAPACK_LIBRARIES}")
+    link_libraries(${SIRIUS_LINALG_LIB})
   endif()
 endif()
 

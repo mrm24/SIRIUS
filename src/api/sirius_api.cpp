@@ -710,6 +710,22 @@ sirius_set_parameters:
       type: string
       attr: in, optional
       doc: Type of iterative solver.
+    iter_solver_init_eval_old:
+      type: bool
+      attr: in, optional
+      doc: Initialize eigenvalues from old ones.
+    iter_solver_orthogonalize:
+      type: bool
+      attr: in, optional
+      doc: Orthogonalize the new subspace basis functions
+    iter_solver_subspace_size:
+      type: int
+      attr: in, optional
+      doc: Size of the subspace
+    iter_solver_internal_nsteps:
+      type: int
+      attr: in, optional
+      doc: Number of internal iterations
     verbosity:
       type: int
       attr: in, optional
@@ -774,7 +790,9 @@ sirius_set_parameters(void* const* handler__, int const* lmax_apw__, int const* 
                       double const* pw_cutoff__, double const* gk_cutoff__, int const* fft_grid_size__,
                       int const* auto_rmt__, bool const* gamma_point__, bool const* use_symmetry__,
                       bool const* so_correction__, char const* valence_rel__, char const* core_rel__,
-                      double const* iter_solver_tol_empty__, char const* iter_solver_type__, int const* verbosity__,
+                      double const* iter_solver_tol_empty__, char const* iter_solver_type__, 
+                      bool const* iter_solver_init_eval_old__, bool const* iter_solver_orthogonalize__, 
+                      int const* iter_solver_subspace_size__, int const* iter_solver_internal_nsteps__, int const* verbosity__,
                       bool const* hubbard_correction__, int const* hubbard_correction_kind__,
                       bool const* hubbard_full_orthogonalization__, bool const* hubbard_constrained_calculation__,
                       char const* hubbard_orbitals__, bool const* dftd3_correction__, int const* sht_coverage__,
@@ -831,6 +849,18 @@ sirius_set_parameters(void* const* handler__, int const* lmax_apw__, int const* 
                 }
                 if (iter_solver_type__ != nullptr) {
                     sim_ctx.iterative_solver_type(std::string(iter_solver_type__));
+                }
+                if (iter_solver_init_eval_old__ != nullptr) {
+                    sim_ctx.cfg().iterative_solver().init_eval_old(*iter_solver_init_eval_old__);
+                }
+                if (iter_solver_orthogonalize__ != nullptr) {
+                    sim_ctx.cfg().iterative_solver().extra_ortho(*iter_solver_orthogonalize__);
+                }
+                if (iter_solver_subspace_size__ != nullptr) {
+                    sim_ctx.cfg().iterative_solver().subspace_size(*iter_solver_subspace_size__);
+                }
+                if (iter_solver_internal_nsteps__ != nullptr) {
+                    sim_ctx.cfg().iterative_solver().num_steps(*iter_solver_internal_nsteps__);
                 }
                 if (verbosity__ != nullptr) {
                     sim_ctx.verbosity(*verbosity__);
@@ -3071,7 +3101,9 @@ sirius_get_energy(void* const* gs_handler__, char const* label__, double* energy
                         {"fermi", [&]() { return kset.energy_fermi(); }},
                         {"hubbard", [&]() { return sirius::hubbard_energy(density); }},
                         {"ewald", [&]() { return potential.ewald_energy(); }},
-                        {"band-gap", [&]() { return kset.band_gap(); }}};
+                        {"band-gap", [&]() { return kset.band_gap(); }},
+                        {"dftd3", [&]() { return sirius::energy_dftd3(potential); }},
+                        {"dftd4", [&]() { return sirius::energy_dftd4(potential); }}};
 
                 if (!func.count(label)) {
                     RTE_THROW("wrong label: " + label);
@@ -3134,7 +3166,9 @@ sirius_get_forces(void* const* gs_handler__, char const* label__, double* forces
                         {"hubbard", &sirius::Force::calc_forces_hubbard},
                         {"ibs", &sirius::Force::calc_forces_ibs},
                         {"hf", &sirius::Force::calc_forces_hf},
-                        {"rho", &sirius::Force::calc_forces_rho}};
+                        {"rho", &sirius::Force::calc_forces_rho},
+                        {"dftd3", &sirius::Force::calc_forces_dftd3},
+                        {"dftd4", &sirius::Force::calc_forces_dftd4}};
 
                 if (!func.count(label)) {
                     RTE_THROW("wrong label (" + label + ") for the component of forces");
@@ -7454,8 +7488,6 @@ sirius_set_dftd3_correction(void* const* handler__, char const* method__, char c
                             double const* rs6__, double const* rs8__, double const* alp__, double const* beta__,
                             int* error_code__)
 {
-    call_sirius(
-            [&]() {
                 auto& sim_ctx = get_sim_ctx(handler__);
                 sim_ctx.cfg().dftd3().method(method__);
                 if (damping__ != nullptr) {
@@ -7488,8 +7520,6 @@ sirius_set_dftd3_correction(void* const* handler__, char const* method__, char c
                 if (damping_term__ != nullptr) {
                     sim_ctx.cfg().dftd3().damping_values(damping_term__);
                 }
-            },
-            error_code__);
 }
 
 /*

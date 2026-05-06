@@ -840,13 +840,13 @@ class Eigensolver_scalapack : public Eigensolver
         ftn_int liwork = -1;
 
         if (std::is_same<T, std::complex<double>>::value) {
-            FORTRAN(pzheevx)
+            FORTRAN(pzheevr)
             ("V", "I", "U", &matrix_size__, reinterpret_cast<std::complex<double>*>(A__.at(memory_t::host)), &ione,
-             &ione, desca, reinterpret_cast<double*>(&d1), reinterpret_cast<double*>(&d1), &ione, &nev__, &abstol_, &m,
-             &nz, reinterpret_cast<double*>(w.get()), &ortfac_,
+             &ione, desca, reinterpret_cast<double*>(&d1), reinterpret_cast<double*>(&d1), &ione, &nev__, &m,
+             &nz, reinterpret_cast<double*>(w.get()),
              reinterpret_cast<std::complex<double>*>(Z__.at(memory_t::host)), &ione, &ione, descz,
              reinterpret_cast<std::complex<double>*>(work3), &lwork, reinterpret_cast<double*>(rwork3), &lrwork,
-             &iwork1, &liwork, ifail.get(), iclustr.get(), reinterpret_cast<double*>(gap.get()), &info, (ftn_int)1,
+             &iwork1, &liwork, &info, (ftn_int)1,
              (ftn_int)1, (ftn_int)1);
         } else if (std::is_same<T, std::complex<float>>::value) {
             FORTRAN(pcheevx)
@@ -868,13 +868,13 @@ class Eigensolver_scalapack : public Eigensolver
         auto iwork = mph.get_unique_ptr<ftn_int>(liwork);
 
         if (std::is_same<T, std::complex<double>>::value) {
-            FORTRAN(pzheevx)
+            FORTRAN(pzheevr)
             ("V", "I", "U", &matrix_size__, reinterpret_cast<std::complex<double>*>(A__.at(memory_t::host)), &ione,
-             &ione, desca, reinterpret_cast<double*>(&d1), reinterpret_cast<double*>(&d1), &ione, &nev__, &abstol_, &m,
-             &nz, reinterpret_cast<double*>(w.get()), &ortfac_,
+             &ione, desca, reinterpret_cast<double*>(&d1), reinterpret_cast<double*>(&d1), &ione, &nev__, &m,
+             &nz, reinterpret_cast<double*>(w.get()), 
              reinterpret_cast<std::complex<double>*>(Z__.at(memory_t::host)), &ione, &ione, descz,
              reinterpret_cast<std::complex<double>*>(work.get()), &lwork, reinterpret_cast<double*>(rwork.get()),
-             &lrwork, iwork.get(), &liwork, ifail.get(), iclustr.get(), reinterpret_cast<double*>(gap.get()), &info,
+             &lrwork, iwork.get(), &liwork, &info,
              (ftn_int)1, (ftn_int)1, (ftn_int)1);
         } else if (std::is_same<T, std::complex<float>>::value) {
             FORTRAN(pcheevx)

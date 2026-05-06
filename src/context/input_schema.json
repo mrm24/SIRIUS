@@ -288,13 +288,13 @@
                 },
                 "early_restart": {
                     "type": "number",
-                    "default": 0.5,
+                    "default": 0.0,
                     "title": "Restart early when the ratio unconverged vs lockable vectors drops below this threshold.",
                     "description": "When there's just a few vectors left unconverged, it can be more efficient to lock the converged ones,\nsuch that the dense eigenproblem solved in each Davidson iteration has lower dimension.\nRestarting has some overhead in that it requires updating wave functions."
                 },
                 "energy_tolerance": {
                     "type": "number",
-                    "default": 0.01,
+                    "default": 1E-13,
                     "title": "Tolerance for the eigen-energy difference \\f$ |\\epsilon_i^{old} - \\epsilon_i^{new} | \\f$",
                     "description": "This parameter is reduced during the SCF cycle to reach the high accuracy of the wave-functions."
                 },
@@ -339,7 +339,7 @@
                 },
                 "init_eval_old": {
                     "type": "boolean",
-                    "default": true,
+                    "default": false,
                     "title": "Initialize eigen-values with previous (old) values."
                 },
                 "init_subspace": {
@@ -354,7 +354,7 @@
                 },
                 "extra_ortho": {
                     "type": "boolean",
-                    "default": false,
+                    "default": true,
                     "title": "Orthogonalize the new subspace basis functions one more time in order to improve the numerical stability."
                 },
                 "min_occupancy": {

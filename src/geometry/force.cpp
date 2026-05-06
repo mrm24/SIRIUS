@@ -21,6 +21,7 @@
 #include "beta_projectors/beta_projectors_gradient.hpp"
 #include "non_local_functor.hpp"
 #include "hamiltonian/hamiltonian.hpp"
+#include "hamiltonian/diagonalize_fp.hpp"
 #include "symmetry/symmetrize_forces.hpp"
 #include "lapw/step_function.hpp"
 #include <string>
@@ -40,7 +41,7 @@ Force::Force(Simulation_context& ctx__, Density& density__, Potential& potential
 {
 }
 
-void
+mdarray<double, 2> const&
 Force::calc_forces_dftd3()
 {
     forces_dftd3_ = mdarray<double, 2>({3, ctx_.unit_cell().num_atoms()});
@@ -53,9 +54,12 @@ Force::calc_forces_dftd3()
             }
         }
     }
+
+    return forces_dftd3_;
+
 }
 
-void
+mdarray<double, 2> const&
 Force::calc_forces_dftd4()
 {
     forces_dftd4_ = mdarray<double, 2>({3, ctx_.unit_cell().num_atoms()});
@@ -68,6 +72,9 @@ Force::calc_forces_dftd4()
             }
         }
     }
+
+    return forces_dftd4_;
+
 }
 
 template <typename T>
@@ -761,7 +768,7 @@ Force::add_ibs_force(K_point<double>* kp__, Hamiltonian_k<double>& Hk__, mdarray
                      mdarray<double, 2>& forcek__) const
 {
     PROFILE("sirius::Force::ibs_force");
-
+    
     auto& uc = ctx_.unit_cell();
 
     auto& bg = ctx_.blacs_grid();
@@ -775,9 +782,22 @@ Force::add_ibs_force(K_point<double>* kp__, Hamiltonian_k<double>& Hk__, mdarray
     /* compute density matrix for a k-point */
     la::dmatrix<std::complex<double>> dm(nfv, nfv, bg, bs, bs);
     compute_dmat(kp__, dm);
-
-    /* first-variational eigen-vectors in scalapack distribution */
+    
+    /* first-variational eigen-vectors in scalapack distribution 
+       when using Davidson solver we need to transform back from
+       slab decomposition */
     auto& fv_evec = kp__->fv_eigen_vectors();
+    auto& itso    = ctx_.cfg().iterative_solver();
+    if (itso.type() == "davidson") {
+        // We need to allocate the memory as this is not done by default
+        auto bs = ctx_.cyclic_block_size();
+        auto mem_type_gevp = ctx_.gen_evp_solver().host_memory_t();
+        fv_evec = la::dmatrix<std::complex<double>>(kp__->gklo_basis_size(), ctx_.num_fv_states(),
+                                               ctx_.blacs_grid(), bs, bs, mem_type_gevp);
+        // Here we do the transformation
+        remap_lapw_evec_to_2d_block_cyclic(kp__->gkvec().num_gvec(), ctx_.unit_cell().mt_lo_basis_size(), ctx_.num_fv_states(),
+                            kp__->fv_eigen_vectors_slab(), fv_evec, kp__->comm());
+    }
 
     la::dmatrix<std::complex<double>> h(ngklo, ngklo, bg, bs, bs);
     la::dmatrix<std::complex<double>> o(ngklo, ngklo, bg, bs, bs);
@@ -802,10 +822,10 @@ Force::add_ibs_force(K_point<double>* kp__, Hamiltonian_k<double>& Hk__, mdarray
         /* generate matching coefficients for current atom */
         kp__->alm_coeffs_row().generate<true>(atom, alm_row);
         kp__->alm_coeffs_col().generate<false>(atom, alm_col);
-
-        /* setup apw-lo and lo-apw blocks */
+        
+	/* setup apw-lo and lo-apw blocks */
         Hk__.set_fv_h_o_apw_lo(atom, ia, 0, alm_row, alm_col, h, o);
-
+        
         /* apply MT Hamiltonian to column coefficients */
         Hk__.H0().apply_hmt_to_apw(ia, 0, kp__->num_gkvec_col(), alm_col, halm_col);
 
@@ -846,6 +866,10 @@ Force::add_ibs_force(K_point<double>* kp__, Hamiltonian_k<double>& Hk__, mdarray
         }
 
         for (int x = 0; x < 3; x++) {
+             
+            o1.zero();
+            h1.zero();
+             
             for (int igk_col = 0; igk_col < kp__->num_gkvec_col(); igk_col++) { // loop over columns
                 auto gvec_col = kp__->gkvec_col().gvec(gvec_index_t::local(igk_col));
                 for (int igk_row = 0; igk_row < kp__->num_gkvec_row(); igk_row++) { // loop over rows

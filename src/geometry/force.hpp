@@ -203,10 +203,10 @@ class Force
         return forces_ibs_;
     }
 
-    void
+    mdarray<double, 2> const&
     calc_forces_dftd3();
 
-    void
+    mdarray<double, 2> const&
     calc_forces_dftd4();
 
     mdarray<double, 2> const&
