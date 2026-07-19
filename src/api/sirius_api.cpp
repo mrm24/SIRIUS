@@ -726,6 +726,10 @@ sirius_set_parameters:
       type: int
       attr: in, optional
       doc: Number of internal iterations
+    iter_solver_num_singular:
+      type: int
+      attr: in, optional
+      doc: Number of singular components
     verbosity:
       type: int
       attr: in, optional
@@ -792,7 +796,8 @@ sirius_set_parameters(void* const* handler__, int const* lmax_apw__, int const* 
                       bool const* so_correction__, char const* valence_rel__, char const* core_rel__,
                       double const* iter_solver_tol_empty__, char const* iter_solver_type__, 
                       bool const* iter_solver_init_eval_old__, bool const* iter_solver_orthogonalize__, 
-                      int const* iter_solver_subspace_size__, int const* iter_solver_internal_nsteps__, int const* verbosity__,
+                      int const* iter_solver_subspace_size__, int const* iter_solver_internal_nsteps__, 
+                      int const* iter_solver_num_singular__, int const* verbosity__,
                       bool const* hubbard_correction__, int const* hubbard_correction_kind__,
                       bool const* hubbard_full_orthogonalization__, bool const* hubbard_constrained_calculation__,
                       char const* hubbard_orbitals__, bool const* dftd3_correction__, int const* sht_coverage__,
@@ -861,6 +866,9 @@ sirius_set_parameters(void* const* handler__, int const* lmax_apw__, int const* 
                 }
                 if (iter_solver_internal_nsteps__ != nullptr) {
                     sim_ctx.cfg().iterative_solver().num_steps(*iter_solver_internal_nsteps__);
+                }
+                if (iter_solver_num_singular__ != nullptr) {
+                    sim_ctx.cfg().iterative_solver().num_singular(*iter_solver_num_singular__);
                 }
                 if (verbosity__ != nullptr) {
                     sim_ctx.verbosity(*verbosity__);

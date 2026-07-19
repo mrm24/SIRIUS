@@ -1954,13 +1954,45 @@ orthogonalize(::spla::Context& spla_ctx__, memory_t mem__, spin_range spins__, b
         o__.make_real_diag(n);
     }
     /* Cholesky factorization */
-    if (int info = la::wrap(la).potrf(n, o_ptr, o__.ld(), o__.descriptor())) {
+    la::dmatrix<F> osave;
+    if (o__.comm().size() == 1) {
+        osave = la::dmatrix<F>(o__.num_rows(), o__.num_cols());
+    } else {
+        osave = la::dmatrix<F>(o__.num_rows(), o__.num_cols(), o__.blacs_grid(), o__.bs_row(),
+                               o__.bs_col());
+    }
+
+    for (int i = 0; i < o__.num_cols_local(); i++) {
+        for (int j = 0; j < o__.num_rows_local(); j++) {
+            osave(j, i) = o__(j,i);
+        }
+    }
+
+    int info;
+
+    for (int icycle = 0; icycle < 7; icycle++) {
+        // Copy from saved
+        for (int i = 0; i < o__.num_cols_local(); i++) {
+            for (int j = 0; j < o__.num_rows_local(); j++) {
+                o__(j, i) = osave(j,i);
+                // In case it fails we add small shift to diagonal to stabilize 
+                // numerical issues
+                if (j == i && icycle != 0) o__(j, i) += 1.0e-14 * std::pow(10,icycle);
+            }
+        }
+        info = la::wrap(la).potrf(n, o_ptr, o__.ld(), o__.descriptor());
+        if (info == 0) break;
+    }
+
+
+    if (info) {
         std::stringstream s;
         s << "error in Cholesky factorization, info = " << info << std::endl
           << "number of existing states: " << br_old__.size() << std::endl
           << "number of new states: " << br_new__.size();
         RTE_THROW(s);
     }
+
     /* inversion of triangular matrix */
     if (la::wrap(la).trtri(n, o_ptr, o__.ld(), o__.descriptor())) {
         RTE_THROW("error in inversion");
