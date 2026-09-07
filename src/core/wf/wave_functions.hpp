@@ -20,6 +20,7 @@
 #include <costa/layout.hpp>
 #include <costa/grid2grid/transformer.hpp>
 #include "core/la/linalg.hpp"
+#include "core/la/eigensolver.hpp"
 #include "core/strong_type.hpp"
 #include "core/hdf5_tree.hpp"
 #include "core/fft/gvec.hpp"
@@ -1953,54 +1954,78 @@ orthogonalize(::spla::Context& spla_ctx__, memory_t mem__, spin_range spins__, b
     if (la == la::lib_t::scalapack) {
         o__.make_real_diag(n);
     }
+    /* number of linearly independent new states; equals n on the fast (Cholesky) path */
+    int n_ortho = n;
+    /* true if o__ holds an upper-triangular transformation (inverse Cholesky factor) and
+     * false if it holds a general n x n_ortho rank-revealing transformation */
+    bool tri = true;
     /* Cholesky factorization */
-    la::dmatrix<F> osave;
-    if (o__.comm().size() == 1) {
-        osave = la::dmatrix<F>(o__.num_rows(), o__.num_cols());
-    } else {
-        osave = la::dmatrix<F>(o__.num_rows(), o__.num_cols(), o__.blacs_grid(), o__.bs_row(),
-                               o__.bs_col());
-    }
-
-    for (int i = 0; i < o__.num_cols_local(); i++) {
-        for (int j = 0; j < o__.num_rows_local(); j++) {
-            osave(j, i) = o__(j,i);
+    int info = la::wrap(la).potrf(n, o_ptr, o__.ld(), o__.descriptor());
+    if (info == 0) {
+        /* inversion of triangular matrix */
+        if (la::wrap(la).trtri(n, o_ptr, o__.ld(), o__.descriptor())) {
+            RTE_THROW("error in inversion");
         }
-    }
+    } else {
+        /* The overlap matrix is (numerically) not positive-definite, i.e. the new block of
+         * wave-functions is linearly dependent. Instead of failing, fall back to an
+         * eigen-decomposition based orthonormalization that projects out the null space:
+         *   O = U Λ Uᴴ,   W[:,k] = U[:,k] / sqrt(Λ_k)  for Λ_k > ε
+         * The transformed block φ·W is orthonormal and has exactly rank(O) columns. */
+        if (la == la::lib_t::scalapack) {
+            /* the distributed rank-revealing path requires a redistribution of the packed
+             * transform and is not implemented yet; keep the informative error here */
+            std::stringstream s;
+            s << "error in Cholesky factorization, info = " << info << std::endl
+              << "number of existing states: " << br_old__.size() << std::endl
+              << "number of new states: " << br_new__.size() << std::endl
+              << "the overlap matrix is rank-deficient and the distributed rank-revealing "
+              << "fallback is not implemented; reduce subspace_size or the number of extra basis functions";
+            RTE_THROW(s);
+        }
+        RTE_OUT(std::cout) << "wf::orthogonalize: Cholesky factorization failed (info = " << info
+                           << "), falling back to eigen-decomposition of the " << n << " x " << n
+                           << " overlap matrix" << std::endl;
+        /* potrf has overwritten o__; recompute the overlap of the new block */
+        inner(spla_ctx__, mem__, spins__, wf_i__, br_new__, wf_j__, br_new__, o__, 0, 0);
 
-    int info;
+        std::vector<real_type<F>> eval(n);
+        la::dmatrix<F> Z(n, n);
+        auto solver = la::Eigensolver_factory("lapack");
+        if (solver->solve(n, n, o__, eval.data(), Z)) {
+            RTE_THROW("error in eigen-decomposition of the overlap matrix (orthogonalize fallback)");
+        }
 
-    for (int icycle = 0; icycle < 7; icycle++) {
-        // Copy from saved
-        for (int i = 0; i < o__.num_cols_local(); i++) {
-            for (int j = 0; j < o__.num_rows_local(); j++) {
-                o__(j, i) = osave(j,i);
-                // In case it fails we add small shift to diagonal to stabilize 
-                // numerical issues
-                if (j == i && icycle != 0) o__(j, i) += 1.0e-14 * std::pow(10,icycle);
+        /* eigenvalues are returned in ascending order; drop those below a relative threshold */
+        real_type<F> const cut =
+                std::numeric_limits<real_type<F>>::epsilon() * std::max<real_type<F>>(eval[n - 1], 1) * n;
+        n_ortho = 0;
+        for (int i = 0; i < n; i++) {
+            if (eval[i] > cut) {
+                n_ortho++;
             }
         }
-        info = la::wrap(la).potrf(n, o_ptr, o__.ld(), o__.descriptor());
-        if (info == 0) break;
-    }
-
-
-    if (info) {
-        std::stringstream s;
-        s << "error in Cholesky factorization, info = " << info << std::endl
-          << "number of existing states: " << br_old__.size() << std::endl
-          << "number of new states: " << br_new__.size();
-        RTE_THROW(s);
-    }
-
-    /* inversion of triangular matrix */
-    if (la::wrap(la).trtri(n, o_ptr, o__.ld(), o__.descriptor())) {
-        RTE_THROW("error in inversion");
+        if (n_ortho == 0) {
+            RTE_THROW("orthogonalize fallback: overlap matrix has no positive eigen-values");
+        }
+        RTE_OUT(std::cout) << "wf::orthogonalize: kept " << n_ortho << " of " << n
+                           << " linearly independent states" << std::endl;
+        /* pack the kept (largest-eigenvalue) directions into the first n_ortho columns of o__:
+         * W[:,col] = U[:,i] / sqrt(eval[i]) for the kept global columns i in [n - n_ortho, n) */
+        int col = 0;
+        for (int i = n - n_ortho; i < n; i++) {
+            real_type<F> f = 1 / std::sqrt(eval[i]);
+            for (int j = 0; j < n; j++) {
+                o__(j, col) = Z(j, i) * static_cast<F>(f);
+            }
+            col++;
+        }
+        tri = false;
     }
     PROFILE_STOP("wf::orthogonalize|tmtrx");
 
     /* single MPI rank and precision types of wave-functions and transformation matrices match */
-    if (o__.comm().size() == 1 && std::is_same<T, real_type<F>>::value) {
+    if (tri && o__.comm().size() == 1 && std::is_same<T, real_type<F>>::value) {
         PROFILE_START("wf::orthogonalize|trans");
         if (is_device_memory(mem__)) {
             o__.copy_to(mem__, 0, 0, n, n);
@@ -2032,22 +2057,26 @@ orthogonalize(::spla::Context& spla_ctx__, memory_t mem__, spin_range spins__, b
         }
         PROFILE_STOP("wf::orthogonalize|trans");
     } else {
-        /* o is upper triangular matrix */
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) {
-                o__.set(j, i, 0);
-            }
+         if (tri) {
+             /* o is upper triangular matrix; zero out the lower triangle */
+             for (int i = 0; i < n; i++) {
+                 for (int j = i + 1; j < n; j++) {
+                     o__.set(j, i, 0);
+                 }
+             }
         }
 
         /* phi is transformed into phi, so we can't use it as the output buffer;
-         * use tmp instead and then overwrite phi */
+        * use tmp instead and then overwrite phi. In the rank-revealing fallback the
+        * transform o__ is n x n_ortho, so the orthonormal block has n_ortho columns. */
         for (auto s = spins__.begin(); s != spins__.end(); s++) {
             for (auto wf : wfs__) {
                 auto sp  = wf->actual_spin_index(s);
                 auto sp1 = tmp__.actual_spin_index(s);
-                auto br1 = wf::band_range(0, br_new__.size());
+                auto br1 = wf::band_range(0, n_ortho);
+                auto br2 = wf::band_range(br_new__.begin(), br_new__.begin() + n_ortho);
                 transform(spla_ctx__, mem__, o__, 0, 0, 1.0, *wf, sp, br_new__, 0.0, tmp__, sp1, br1);
-                copy(mem__, tmp__, sp1, br1, *wf, sp, br_new__);
+                copy(mem__, tmp__, sp1, br1, *wf, sp, br2);
             }
         }
     }
