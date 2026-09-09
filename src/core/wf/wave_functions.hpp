@@ -1959,6 +1959,21 @@ orthogonalize(::spla::Context& spla_ctx__, memory_t mem__, spin_range spins__, b
     /* true if o__ holds an upper-triangular transformation (inverse Cholesky factor) and
      * false if it holds a general n x n_ortho rank-revealing transformation */
     bool tri = true;
+    /* We save the o__ matrix in its current state 
+     * This is needed for when Cholesky fails*/
+    std::unique_ptr<la::dmatrix<F>> saved_o__;
+    if (o__.comm().size() == 1) {
+        saved_o__ = std::make_unique<la::dmatrix<F>>(o__.num_rows(), o__.num_cols());
+    } else {
+        saved_o__ = std::make_unique<la::dmatrix<F>>(o__.num_rows(), o__.num_cols(), o__.blacs_grid(), o__.bs_row(),
+                               o__.bs_col());
+    }
+    for (int i = 0; i < o__.num_cols_local(); i++) {
+        for (int j = 0; j < o__.num_rows_local(); j++) {
+            (*saved_o__)(i, j) = o__(i, j);
+        }
+    }
+
     /* Cholesky factorization */
     int info = la::wrap(la).potrf(n, o_ptr, o__.ld(), o__.descriptor());
     if (info == 0) {
@@ -1972,33 +1987,36 @@ orthogonalize(::spla::Context& spla_ctx__, memory_t mem__, spin_range spins__, b
          * eigen-decomposition based orthonormalization that projects out the null space:
          *   O = U Λ Uᴴ,   W[:,k] = U[:,k] / sqrt(Λ_k)  for Λ_k > ε
          * The transformed block φ·W is orthonormal and has exactly rank(O) columns. */
-        if (la == la::lib_t::scalapack) {
-            /* the distributed rank-revealing path requires a redistribution of the packed
-             * transform and is not implemented yet; keep the informative error here */
-            std::stringstream s;
-            s << "error in Cholesky factorization, info = " << info << std::endl
-              << "number of existing states: " << br_old__.size() << std::endl
-              << "number of new states: " << br_new__.size() << std::endl
-              << "the overlap matrix is rank-deficient and the distributed rank-revealing "
-              << "fallback is not implemented; reduce subspace_size or the number of extra basis functions";
-            RTE_THROW(s);
-        }
         RTE_OUT(std::cout) << "wf::orthogonalize: Cholesky factorization failed (info = " << info
-                           << "), falling back to eigen-decomposition of the " << n << " x " << n
-                           << " overlap matrix" << std::endl;
-        /* potrf has overwritten o__; recompute the overlap of the new block */
-        inner(spla_ctx__, mem__, spins__, wf_i__, br_new__, wf_j__, br_new__, o__, 0, 0);
+                            << "), falling back to eigen-decomposition of the " << n << " x " << n
+                            << " overlap matrix" << std::endl;
+
+	/* potrf has overwritten o__; reload the overlap from saved one */
+	for (int i = 0; i < o__.num_cols_local(); i++) {
+            for (int j = 0; j < o__.num_rows_local(); j++) {
+                o__(i, j) = (*saved_o__)(i, j);
+            }
+        }
 
         std::vector<real_type<F>> eval(n);
-        la::dmatrix<F> Z(n, n);
-        auto solver = la::Eigensolver_factory("lapack");
-        if (solver->solve(n, n, o__, eval.data(), Z)) {
+	std::unique_ptr<la::dmatrix<F>> Z;
+	if (o__.comm().size() == 1) {
+            Z = std::make_unique<la::dmatrix<F>>(o__.num_rows(), o__.num_cols());
+        } else {
+            Z = std::make_unique<la::dmatrix<F>>(o__.num_rows(), o__.num_cols(), o__.blacs_grid(), o__.bs_row(),
+                                   o__.bs_col());
+        }
+
+	auto solver = (o__.comm().size() == 1) ? la::Eigensolver_factory("lapack") : la::Eigensolver_factory("scalapack");
+
+        if (solver->solve(n, n, o__, eval.data(), *Z)) {
             RTE_THROW("error in eigen-decomposition of the overlap matrix (orthogonalize fallback)");
         }
 
-        /* eigenvalues are returned in ascending order; drop those below a relative threshold */
+        /* eigenvalues are returned in ascending order; drop those below a relative threshold 
+	 * the threshold */
         real_type<F> const cut =
-                std::numeric_limits<real_type<F>>::epsilon() * std::max<real_type<F>>(eval[n - 1], 1) * n;
+                std::numeric_limits<real_type<F>>::epsilon() * std::abs(eval[n - 1]) * n;
         n_ortho = 0;
         for (int i = 0; i < n; i++) {
             if (eval[i] > cut) {
@@ -2012,14 +2030,30 @@ orthogonalize(::spla::Context& spla_ctx__, memory_t mem__, spin_range spins__, b
                            << " linearly independent states" << std::endl;
         /* pack the kept (largest-eigenvalue) directions into the first n_ortho columns of o__:
          * W[:,col] = U[:,i] / sqrt(eval[i]) for the kept global columns i in [n - n_ortho, n) */
-        int col = 0;
+
+	/* Obtain the non distributed matrices */
+	auto non_distributed_Z   = Z->get_full_matrix();
+	auto non_distributed_o__ = o__.get_full_matrix();
+        
+	/* Right now this is repeated by all the ranks */
+	int col = 0;
         for (int i = n - n_ortho; i < n; i++) {
-            real_type<F> f = 1 / std::sqrt(eval[i]);
+           real_type<F> f = 1 / std::sqrt(eval[i]);
             for (int j = 0; j < n; j++) {
-                o__(j, col) = Z(j, i) * static_cast<F>(f);
+                non_distributed_o__(j, col) = non_distributed_Z(j, i) * static_cast<F>(f);
             }
             col++;
         }
+
+	/* Save only the part we should hold on the rank */
+	for (int i = 0; i < o__.num_cols_local(); i++) {
+	    auto icol = o__.icol(i);
+            for (int j = 0; j < o__.num_rows_local(); j++) {
+		auto irow = o__.irow(j);
+	        o__(i, j) = non_distributed_o__(irow, icol);
+	    }
+	} 
+
         tri = false;
     }
     PROFILE_STOP("wf::orthogonalize|tmtrx");
